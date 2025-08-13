@@ -1,8 +1,39 @@
-// src/middleware/validation.js
 const { body, validationResult } = require('express-validator');
 const sanitizeHtml = require('sanitize-html');
 const { parsePhoneNumber } = require('libphonenumber-js');
 const { AppError } = require('../utils/errorHandler');
+const multer = require('multer');
+const CloudinaryService = require('../services/cloudinaryService');
+const createError = require('http-errors');
+
+
+// Configure multer for memory storage
+const storage = multer.memoryStorage();
+
+const upload = multer({
+    storage,
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB limit
+        files: 1 // Only one file at a time
+    },
+    fileFilter: (req, file, cb) => {
+        // Validate file type
+        const allowedMimeTypes = [
+            'image/jpeg',
+            'image/jpg',
+            'image/png',
+            'image/webp',
+            'image/gif'
+        ];
+        
+        if (allowedMimeTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(createError(400, 'Invalid file type. Please upload a valid image file'), false);
+        }
+    }
+}).single('image');
+
 
 // Handle validation errors
 const handleValidationErrors = (req, res, next) => {
@@ -97,71 +128,100 @@ const validateUserLogin = [
     handleValidationErrors
 ];
 
-// Company profile validation
+/**
+ * Company profile validation rules
+ */
 const validateCompanyProfile = [
     body('company_name')
-        .isLength({ min: 2, max: 200 })
-        .withMessage('Company name must be between 2 and 200 characters')
-        .matches(/^[a-zA-Z0-9\s&.,'-]+$/)
-        .withMessage('Company name contains invalid characters'),
-
+        .notEmpty()
+        .withMessage('Company name is required')
+        .isLength({ min: 2, max: 100 })
+        .withMessage('Company name must be between 2 and 100 characters')
+        .trim()
+        .escape(),
+    
     body('address')
-        .isLength({ min: 5, max: 500 })
-        .withMessage('Address must be between 5 and 500 characters'),
-
+        .notEmpty()
+        .withMessage('Address is required')
+        .isLength({ min: 5, max: 200 })
+        .withMessage('Address must be between 5 and 200 characters')
+        .trim(),
+    
     body('city')
+        .notEmpty()
+        .withMessage('City is required')
         .isLength({ min: 2, max: 50 })
         .withMessage('City must be between 2 and 50 characters')
-        .matches(/^[a-zA-Z\s.-]+$/)
-        .withMessage('City name contains invalid characters'),
-
+        .trim()
+        .escape(),
+    
     body('state')
+        .notEmpty()
+        .withMessage('State is required')
         .isLength({ min: 2, max: 50 })
         .withMessage('State must be between 2 and 50 characters')
-        .matches(/^[a-zA-Z\s.-]+$/)
-        .withMessage('State name contains invalid characters'),
-
+        .trim()
+        .escape(),
+    
     body('country')
+        .notEmpty()
+        .withMessage('Country is required')
         .isLength({ min: 2, max: 50 })
         .withMessage('Country must be between 2 and 50 characters')
-        .matches(/^[a-zA-Z\s.-]+$/)
-        .withMessage('Country name contains invalid characters'),
-
+        .trim()
+        .escape(),
+    
     body('postal_code')
+        .notEmpty()
+        .withMessage('Postal code is required')
         .isLength({ min: 3, max: 20 })
         .withMessage('Postal code must be between 3 and 20 characters')
-        .matches(/^[a-zA-Z0-9\s-]+$/)
-        .withMessage('Invalid postal code format'),
-
+        .trim()
+        .escape(),
+    
     body('website')
-        .optional()
-        .isURL({ protocols: ['http', 'https'], require_protocol: true })
-        .withMessage('Please provide a valid website URL'),
-
+        .optional({ nullable: true, checkFalsy: true })
+        .isURL({ 
+            protocols: ['http', 'https'],
+            require_protocol: true 
+        })
+        .withMessage('Please provide a valid website URL')
+        .normalizeEmail(),
+    
     body('industry')
-        .isLength({ min: 2, max: 100 })
-        .withMessage('Industry must be between 2 and 100 characters'),
-
+        .notEmpty()
+        .withMessage('Industry is required')
+        .isLength({ min: 2, max: 50 })
+        .withMessage('Industry must be between 2 and 50 characters')
+        .trim()
+        .escape(),
+    
     body('founded_date')
-        .optional()
+        .optional({ nullable: true, checkFalsy: true })
         .isISO8601()
-        .withMessage('Founded date must be a valid date')
+        .withMessage('Please provide a valid founded date')
         .custom((value) => {
-            const date = new Date(value);
+            const foundedDate = new Date(value);
             const currentDate = new Date();
-            if (date > currentDate) {
+            const minDate = new Date('1800-01-01');
+            
+            if (foundedDate > currentDate) {
                 throw new Error('Founded date cannot be in the future');
+            }
+            if (foundedDate < minDate) {
+                throw new Error('Founded date seems too old');
             }
             return true;
         }),
-
+    
     body('description')
-        .optional()
+        .optional({ nullable: true, checkFalsy: true })
         .isLength({ max: 1000 })
-        .withMessage('Description must not exceed 1000 characters'),
-
+        .withMessage('Description must not exceed 1000 characters')
+        .trim(),
+    
     body('social_links')
-        .optional()
+        .optional({ nullable: true, checkFalsy: true })
         .custom((value) => {
             if (typeof value === 'string') {
                 try {
@@ -174,100 +234,122 @@ const validateCompanyProfile = [
             if (typeof value !== 'object' || Array.isArray(value)) {
                 throw new Error('Social links must be an object');
             }
-
-            // Validate common social media platforms
-            const allowedPlatforms = ['facebook', 'twitter', 'linkedin', 'instagram', 'youtube', 'website'];
-            const urlPattern = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/;
-
+            
+            // Validate social media URLs
+            const allowedPlatforms = [
+                'facebook', 'twitter', 'linkedin', 'instagram', 
+                'youtube', 'github', 'website'
+            ];
+            
             for (const [platform, url] of Object.entries(value)) {
                 if (!allowedPlatforms.includes(platform.toLowerCase())) {
-                    throw new Error(`Unsupported social platform: ${platform}`);
+                    throw new Error(`Invalid social media platform: ${platform}`);
                 }
-                if (!urlPattern.test(url)) {
-                    throw new Error(`Invalid URL for ${platform}`);
+                
+                if (url && typeof url === 'string') {
+                    try {
+                        new URL(url); // Validate URL format
+                    } catch (error) {
+                        throw new Error(`Invalid URL for ${platform}: ${url}`);
+                    }
                 }
             }
             
             return true;
-        }),
-
-    sanitizeInput,
-    handleValidationErrors
+        })
 ];
 
-// Company profile update validation (optional fields)
+/**
+ * Company profile update validation rules
+ */
 const validateCompanyProfileUpdate = [
     body('company_name')
         .optional()
-        .isLength({ min: 2, max: 200 })
-        .withMessage('Company name must be between 2 and 200 characters')
-        .matches(/^[a-zA-Z0-9\s&.,'-]+$/)
-        .withMessage('Company name contains invalid characters'),
-
+        .isLength({ min: 2, max: 100 })
+        .withMessage('Company name must be between 2 and 100 characters')
+        .trim()
+        .escape(),
+    
     body('address')
         .optional()
-        .isLength({ min: 5, max: 500 })
-        .withMessage('Address must be between 5 and 500 characters'),
-
+        .isLength({ min: 5, max: 200 })
+        .withMessage('Address must be between 5 and 200 characters')
+        .trim(),
+    
     body('city')
         .optional()
         .isLength({ min: 2, max: 50 })
         .withMessage('City must be between 2 and 50 characters')
-        .matches(/^[a-zA-Z\s.-]+$/)
-        .withMessage('City name contains invalid characters'),
-
+        .trim()
+        .escape(),
+    
     body('state')
         .optional()
         .isLength({ min: 2, max: 50 })
         .withMessage('State must be between 2 and 50 characters')
-        .matches(/^[a-zA-Z\s.-]+$/)
-        .withMessage('State name contains invalid characters'),
-
+        .trim()
+        .escape(),
+    
     body('country')
         .optional()
         .isLength({ min: 2, max: 50 })
         .withMessage('Country must be between 2 and 50 characters')
-        .matches(/^[a-zA-Z\s.-]+$/)
-        .withMessage('Country name contains invalid characters'),
-
+        .trim()
+        .escape(),
+    
     body('postal_code')
         .optional()
         .isLength({ min: 3, max: 20 })
         .withMessage('Postal code must be between 3 and 20 characters')
-        .matches(/^[a-zA-Z0-9\s-]+$/)
-        .withMessage('Invalid postal code format'),
-
+        .trim()
+        .escape(),
+    
     body('website')
-        .optional()
-        .isURL({ protocols: ['http', 'https'], require_protocol: true })
+        .optional({ nullable: true, checkFalsy: true })
+        .isURL({ 
+            protocols: ['http', 'https'],
+            require_protocol: true 
+        })
         .withMessage('Please provide a valid website URL'),
-
+    
     body('industry')
         .optional()
-        .isLength({ min: 2, max: 100 })
-        .withMessage('Industry must be between 2 and 100 characters'),
-
+        .isLength({ min: 2, max: 50 })
+        .withMessage('Industry must be between 2 and 50 characters')
+        .trim()
+        .escape(),
+    
     body('founded_date')
-        .optional()
+        .optional({ nullable: true, checkFalsy: true })
         .isISO8601()
-        .withMessage('Founded date must be a valid date')
+        .withMessage('Please provide a valid founded date')
         .custom((value) => {
-            const date = new Date(value);
+            if (!value) return true;
+            
+            const foundedDate = new Date(value);
             const currentDate = new Date();
-            if (date > currentDate) {
+            const minDate = new Date('1800-01-01');
+            
+            if (foundedDate > currentDate) {
                 throw new Error('Founded date cannot be in the future');
+            }
+            if (foundedDate < minDate) {
+                throw new Error('Founded date seems too old');
             }
             return true;
         }),
-
+    
     body('description')
-        .optional()
+        .optional({ nullable: true, checkFalsy: true })
         .isLength({ max: 1000 })
-        .withMessage('Description must not exceed 1000 characters'),
-
+        .withMessage('Description must not exceed 1000 characters')
+        .trim(),
+    
     body('social_links')
-        .optional()
+        .optional({ nullable: true, checkFalsy: true })
         .custom((value) => {
+            if (!value) return true;
+            
             if (typeof value === 'string') {
                 try {
                     value = JSON.parse(value);
@@ -279,79 +361,174 @@ const validateCompanyProfileUpdate = [
             if (typeof value !== 'object' || Array.isArray(value)) {
                 throw new Error('Social links must be an object');
             }
-
-            const allowedPlatforms = ['facebook', 'twitter', 'linkedin', 'instagram', 'youtube', 'website'];
-            const urlPattern = /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/;
-
+            
+            const allowedPlatforms = [
+                'facebook', 'twitter', 'linkedin', 'instagram', 
+                'youtube', 'github', 'website'
+            ];
+            
             for (const [platform, url] of Object.entries(value)) {
                 if (!allowedPlatforms.includes(platform.toLowerCase())) {
-                    throw new Error(`Unsupported social platform: ${platform}`);
+                    throw new Error(`Invalid social media platform: ${platform}`);
                 }
-                if (!urlPattern.test(url)) {
-                    throw new Error(`Invalid URL for ${platform}`);
+                
+                if (url && typeof url === 'string') {
+                    try {
+                        new URL(url);
+                    } catch (error) {
+                        throw new Error(`Invalid URL for ${platform}: ${url}`);
+                    }
                 }
             }
             
             return true;
         }),
-
-    sanitizeInput,
-    handleValidationErrors
-];
-
-// Mobile OTP validation
-const validateMobileOTP = [
-    body('otp')
-        .isLength({ min: 6, max: 6 })
-        .withMessage('OTP must be exactly 6 digits')
-        .isNumeric()
-        .withMessage('OTP must contain only numbers'),
-
-    body('mobile_no')
-        .custom((value) => {
-            try {
-                const phoneNumber = parsePhoneNumber(value);
-                if (!phoneNumber || !phoneNumber.isValid()) {
-                    throw new Error('Invalid phone number format');
-                }
-                return true;
-            } catch (error) {
-                throw new Error('Invalid phone number format');
+    
+    // Ensure at least one field is being updated
+    body()
+        .custom((value, { req }) => {
+            const updateFields = [
+                'company_name', 'address', 'city', 'state', 'country',
+                'postal_code', 'website', 'industry', 'founded_date',
+                'description', 'social_links'
+            ];
+            
+            const hasUpdateField = updateFields.some(field => 
+                req.body.hasOwnProperty(field) && req.body[field] !== undefined
+            );
+            
+            if (!hasUpdateField) {
+                throw new Error('At least one field must be provided for update');
             }
-        }),
-
-    sanitizeInput,
-    handleValidationErrors
+            
+            return true;
+        })
 ];
 
-// Image upload validation
+/**
+ * Image upload validation middleware
+ */
 const validateImageUpload = (req, res, next) => {
-    if (!req.file) {
-        return next(new AppError('Please select an image to upload', 400));
-    }
+    upload(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return next(createError(400, 'File too large. Maximum size is 5MB'));
+            }
+            if (err.code === 'LIMIT_FILE_COUNT') {
+                return next(createError(400, 'Too many files. Only one file is allowed'));
+            }
+            return next(createError(400, `Upload error: ${err.message}`));
+        } else if (err) {
+            return next(err);
+        }
+        
+        // Additional validation using CloudinaryService
+        if (req.file) {
+            const validation = CloudinaryService.validateImageFile(req.file, {
+                maxSize: 5 * 1024 * 1024, // 5MB
+                allowedFormats: ['jpg', 'jpeg', 'png', 'webp'],
+                minWidth: 100,
+                minHeight: 100,
+                maxWidth: 4000,
+                maxHeight: 4000
+            });
+            
+            if (!validation.isValid) {
+                return next(createError(400, validation.errors.join(', ')));
+            }
+        }
+        
+        next();
+    });
+};
 
-    // Check file type
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (!allowedTypes.includes(req.file.mimetype)) {
-        return next(new AppError('Only JPEG, PNG, and WebP images are allowed', 400));
-    }
+/**
+ * Search query validation
+ */
+const validateSearchQuery = [
+    query('page')
+        .optional()
+        .isInt({ min: 1 })
+        .withMessage('Page must be a positive integer')
+        .toInt(),
+    
+    query('limit')
+        .optional()
+        .isInt({ min: 1, max: 50 })
+        .withMessage('Limit must be between 1 and 50')
+        .toInt(),
+    
+    query('search')
+        .optional()
+        .isLength({ max: 100 })
+        .withMessage('Search query must not exceed 100 characters')
+        .trim(),
+    
+    query('industry')
+        .optional()
+        .isLength({ max: 50 })
+        .withMessage('Industry filter must not exceed 50 characters')
+        .trim(),
+    
+    query('city')
+        .optional()
+        .isLength({ max: 50 })
+        .withMessage('City filter must not exceed 50 characters')
+        .trim(),
+    
+    query('state')
+        .optional()
+        .isLength({ max: 50 })
+        .withMessage('State filter must not exceed 50 characters')
+        .trim(),
+    
+    query('country')
+        .optional()
+        .isLength({ max: 50 })
+        .withMessage('Country filter must not exceed 50 characters')
+        .trim(),
+    
+    query('sortBy')
+        .optional()
+        .isIn([
+            'company_name', 'city', 'state', 'country', 
+            'industry', 'created_at', 'updated_at'
+        ])
+        .withMessage('Invalid sort field'),
+    
+    query('sortOrder')
+        .optional()
+        .isIn(['ASC', 'DESC', 'asc', 'desc'])
+        .withMessage('Sort order must be ASC or DESC')
+];
 
-    // Check file size (5MB limit)
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    if (req.file.size > maxSize) {
-        return next(new AppError('Image size should not exceed 5MB', 400));
+/**
+ * Sanitize company data middleware
+ */
+const sanitizeCompanyData = (req, res, next) => {
+    if (req.body.social_links && typeof req.body.social_links === 'string') {
+        try {
+            req.body.social_links = JSON.parse(req.body.social_links);
+        } catch (error) {
+            // Will be caught by validation
+        }
     }
-
+    
+    // Convert empty strings to null for optional fields
+    const optionalFields = ['website', 'founded_date', 'description', 'social_links'];
+    optionalFields.forEach(field => {
+        if (req.body[field] === '') {
+            req.body[field] = null;
+        }
+    });
+    
     next();
 };
 
 module.exports = {
-    validateUserRegistration,
-    validateUserLogin,
-    validateCompanyProfile,
-    validateCompanyProfileUpdate,
-    validateMobileOTP,
+    validateCompanyProfile: [...validateCompanyProfile, sanitizeCompanyData],
+    validateCompanyProfileUpdate: [...validateCompanyProfileUpdate, sanitizeCompanyData],
     validateImageUpload,
-    sanitizeInput,
-    handleValidationErrors
+    validateSearchQuery,
+    sanitizeCompanyData
 };

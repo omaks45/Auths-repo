@@ -1,5 +1,5 @@
 node_modules/
-.env
 package-lock.json
 company_db.sql
-./config/firebase-service-account.json
+firebase-service-account.json
+.env*

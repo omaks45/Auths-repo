@@ -40,6 +40,7 @@ try {
     console.error('Error loading auth routes:', error.message);
 }
 
+/*
 console.log('Importing company routes...');
 try {
     const companyRoutes = require('./routes/company');
@@ -55,6 +56,8 @@ try {
 } catch (error) {
     console.error('Error loading company routes:', error.message);
 }
+
+*/
 
 // Health check
 app.get('/api/health', (req, res) => {

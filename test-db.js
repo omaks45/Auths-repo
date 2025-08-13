@@ -1,4 +1,5 @@
 // test-db.js - Run this to test your database connection
+/*
 require('dotenv').config();
 const { Pool } = require('pg');
 
@@ -56,3 +57,4 @@ async function testDatabase() {
 }
 
 testDatabase();
+*/

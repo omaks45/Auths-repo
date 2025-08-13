@@ -525,7 +525,25 @@ const sanitizeCompanyData = (req, res, next) => {
     next();
 };
 
+// Add this to the end of your validation middleware exports
+const validateMobileOTP = [
+    body('otp')
+        .isLength({ min: 6, max: 6 })
+        .isNumeric()
+        .withMessage('OTP must be a 6-digit number'),
+
+    body('verification_id')
+        .notEmpty()
+        .withMessage('Verification ID is required'),
+
+    sanitizeInput,
+    handleValidationErrors
+];
+
 module.exports = {
+    validateUserRegistration,
+    validateUserLogin,
+    validateMobileOTP, // Add this line
     validateCompanyProfile: [...validateCompanyProfile, sanitizeCompanyData],
     validateCompanyProfileUpdate: [...validateCompanyProfileUpdate, sanitizeCompanyData],
     validateImageUpload,

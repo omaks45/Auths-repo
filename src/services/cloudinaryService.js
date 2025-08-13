@@ -1,6 +1,6 @@
 const cloudinary = require('cloudinary').v2;
 const createError = require('http-errors');
-const sharp = require('sharp');
+
 
 // Configure Cloudinary (make sure to set these in your environment variables)
 cloudinary.config({
@@ -12,7 +12,7 @@ cloudinary.config({
 
 class CloudinaryService {
     /**
-     * Upload image to Cloudinary with optimizations
+     * Upload image to Cloudinary with basic optimizations
      * Time Complexity: O(1) - API call
      * @param {Object} file - Multer file object or buffer
      * @param {Object} options - Upload options
@@ -20,7 +20,7 @@ class CloudinaryService {
      */
     static async uploadImage(file, options = {}) {
         try {
-            // Default upload options
+            // Default upload options with Cloudinary's built-in transformations
             const defaultOptions = {
                 resource_type: 'image',
                 quality: 'auto:best',
@@ -33,13 +33,7 @@ class CloudinaryService {
                 ...options
             };
             
-            // If file buffer exists, process it with Sharp for optimization
-            let processedBuffer = null;
-            if (file.buffer) {
-                processedBuffer = await this.optimizeImage(file.buffer, options);
-            }
-            
-            // Upload to Cloudinary
+            // Upload to Cloudinary directly
             return new Promise((resolve, reject) => {
                 const uploadStream = cloudinary.uploader.upload_stream(
                     defaultOptions,
@@ -53,9 +47,8 @@ class CloudinaryService {
                     }
                 );
                 
-                // Use processed buffer if available, otherwise use original buffer
-                const bufferToUpload = processedBuffer || file.buffer;
-                uploadStream.end(bufferToUpload);
+                // Use the file buffer directly
+                uploadStream.end(file.buffer);
             });
             
         } catch (error) {
@@ -64,87 +57,8 @@ class CloudinaryService {
         }
     }
     
-    /**
-     * Optimize image using Sharp before uploading
-     * Time Complexity: O(n) where n is image size
-     * @param {Buffer} imageBuffer - Image buffer
-     * @param {Object} options - Optimization options
-     * @returns {Promise<Buffer>} Optimized image buffer
-     */
-    static async optimizeImage(imageBuffer, options = {}) {
-        try {
-            const { transformation = [] } = options;
-            
-            let sharpInstance = sharp(imageBuffer);
-            
-            // Get image metadata for optimization decisions
-            const metadata = await sharpInstance.metadata();
-            
-            // Apply transformations if specified
-            for (const transform of transformation) {
-                if (transform.width || transform.height) {
-                    const resizeOptions = {
-                        width: transform.width,
-                        height: transform.height,
-                        fit: this.mapCloudinaryCropToSharp(transform.crop || 'limit'),
-                        withoutEnlargement: true
-                    };
-                    sharpInstance = sharpInstance.resize(resizeOptions);
-                }
-                
-                if (transform.quality) {
-                    // Sharp will handle quality in the format conversion
-                }
-            }
-            
-            // Optimize based on format
-            if (metadata.format === 'jpeg' || metadata.format === 'jpg') {
-                sharpInstance = sharpInstance.jpeg({ 
-                    quality: 85, 
-                    progressive: true,
-                    mozjpeg: true 
-                });
-            } else if (metadata.format === 'png') {
-                sharpInstance = sharpInstance.png({ 
-                    compressionLevel: 9,
-                    progressive: true 
-                });
-            } else if (metadata.format === 'webp') {
-                sharpInstance = sharpInstance.webp({ 
-                    quality: 85,
-                    effort: 6 
-                });
-            } else {
-                // Convert unsupported formats to JPEG
-                sharpInstance = sharpInstance.jpeg({ 
-                    quality: 85, 
-                    progressive: true 
-                });
-            }
-            
-            return await sharpInstance.toBuffer();
-            
-        } catch (error) {
-            console.warn('Image optimization failed, using original:', error.message);
-            return imageBuffer; // Return original if optimization fails
-        }
-    }
-    
-    /**
-     * Map Cloudinary crop modes to Sharp fit modes
-     * @param {string} cloudinryCrop - Cloudinary crop mode
-     * @returns {string} Sharp fit mode
-     */
-    static mapCloudinaryCropToSharp(cloudinryCrop) {
-        const mapping = {
-            'limit': 'inside',
-            'fill': 'cover',
-            'fit': 'contain',
-            'crop': 'cover',
-            'scale': 'fill'
-        };
-        return mapping[cloudinryCrop] || 'inside';
-    }
+    // Remove the optimizeImage method entirely since it used Sharp
+    // Remove the mapCloudinaryCropToSharp method entirely
     
     /**
      * Delete image from Cloudinary
@@ -257,7 +171,7 @@ class CloudinaryService {
     }
     
     /**
-     * Validate image file before upload
+     * Validate image file before upload (basic validation without Sharp)
      * Time Complexity: O(1)
      * @param {Object} file - Multer file object
      * @param {Object} options - Validation options
@@ -266,11 +180,8 @@ class CloudinaryService {
     static validateImageFile(file, options = {}) {
         const {
             maxSize = 5 * 1024 * 1024, // 5MB default
-            allowedFormats = ['jpg', 'jpeg', 'png', 'webp', 'gif'],
-            minWidth = 100,
-            minHeight = 100,
-            maxWidth = 4000,
-            maxHeight = 4000
+            allowedFormats = ['jpg', 'jpeg', 'png', 'webp', 'gif']
+            // Note: Can't validate dimensions without Sharp
         } = options;
         
         const errors = [];
@@ -312,7 +223,7 @@ class CloudinaryService {
     }
     
     /**
-     * Generate thumbnail URL
+     * Generate thumbnail URL using Cloudinary transformations
      * Time Complexity: O(1)
      * @param {string} imageUrl - Original image URL
      * @param {Object} options - Thumbnail options

@@ -1,4 +1,3 @@
-
 const { Pool } = require('pg');
 
 const pool = new Pool({
@@ -14,11 +13,11 @@ const pool = new Pool({
 
 // Test connection
 pool.on('connect', () => {
-    console.log(' Connected to PostgreSQL database:', process.env.DB_NAME);
+    console.log('✅ Connected to PostgreSQL database:', process.env.DB_NAME);
 });
 
 pool.on('error', (err) => {
-    console.error(' Database connection error:', err);
+    console.error('❌ Database connection error:', err);
 });
 
 // Helper function for queries
@@ -27,10 +26,10 @@ const query = async (text, params) => {
     try {
         const res = await pool.query(text, params);
         const duration = Date.now() - start;
-        console.log(' Query executed', { text: text.substring(0, 100) + '...', duration, rows: res.rowCount });
+        console.log('🔍 Query executed', { text: text.substring(0, 100) + '...', duration, rows: res.rowCount });
         return res;
     } catch (error) {
-        console.error(' Query error:', error);
+        console.error('❌ Query error:', error);
         throw error;
     }
 };
@@ -44,7 +43,7 @@ const getClient = () => {
 const testConnection = async () => {
     try {
         const result = await query('SELECT NOW() as current_time');
-        console.log(' Database connection test successful:', result.rows[0]);
+        console.log('✅ Database connection test successful:', result.rows[0]);
         
         // Test if required tables exist
         const tablesResult = await query(`
@@ -54,29 +53,23 @@ const testConnection = async () => {
         `);
         
         const tables = tablesResult.rows.map(row => row.table_name);
-        console.log(' Found tables:', tables);
+        console.log('📋 Found tables:', tables);
         
         if (!tables.includes('users')) {
-            console.log('  Warning: users table not found');
+            console.log('⚠️  Warning: users table not found');
         }
         if (!tables.includes('company_profile')) {
-            console.log('  Warning: company_profile table not found');
+            console.log('⚠️  Warning: company_profile table not found');
         }
         
         return true;
     } catch (error) {
-        console.error(' Database connection test failed:', error.message);
+        console.error('❌ Database connection test failed:', error.message);
         return false;
     }
 };
 
-module.exports = {
-    pool,
-    query,
-    getClient,
-    testConnection
-};
-
+// Export everything - MAKE SURE THIS IS AT THE END AND CORRECTLY FORMATTED
 module.exports = {
     pool,
     query,
